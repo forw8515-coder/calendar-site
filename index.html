@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <title>予約カレンダー</title>
+  <style>
+    body { font-family: sans-serif; padding: 20px; }
+    .tabs { margin-bottom: 10px; }
+    .tab { display:inline-block; padding:8px 12px; border:1px solid #ccc; cursor:pointer; }
+    .active { background:#000; color:#fff; }
+    .grid { display: grid; grid-template-columns: 80px repeat(7, 1fr); }
+    .cell { border: 1px solid #ccc; padding: 6px; text-align: center; font-size: 12px; cursor:pointer; }
+    .ok { color: red; }
+    .ng { color: #999; }
+    .header { background: #f5f5f5; font-weight: bold; }
+    #modal { position:fixed; top:20%; left:50%; transform:translateX(-50%);
+             background:#fff; border:1px solid #ccc; padding:20px; display:none; }
+  </style>
+</head>
+<body>
+
+<h2>予約カレンダー</h2>
+
+<div class="tabs" id="tabs"></div>
+<div id="calendar" class="grid"></div>
+
+<div id="modal">
+  <h3>予約フォーム</h3>
+  <div id="selected"></div>
+  名前：<input id="name"><br><br>
+  メニュー：
+  <select id="menu">
+    <option value="カット">カット</option>
+    <option value="カラー">カラー</option>
+  </select><br><br>
+  <button onclick="submitBooking()">予約</button>
+  <button onclick="closeModal()">閉じる</button>
+</div>
+
+<script>
+const RESERVE_URL = "https://opensheet.elk.sh/1tCvX5zTkjMomOk5ciG9UGqiLe4X4CT3N7S8OvZMe59M/予約";
+const BUSINESS_URL = "https://opensheet.elk.sh/1tCvX5zTkjMomOk5ciG9UGqiLe4X4CT3N7S8OvZMe59M/営業";
+const API_URL = "";
+
+let allData = [];
+let businessData = [];
+let currentStaff = "";
+let selectedSlot = null;
+
+function generateTimeSlots() {
+  const slots = [];
+  for (let h = 9; h < 19; h++) {
+    slots.push(`${("0"+h).slice(-2)}:00`);
+    slots.push(`${("0"+h).slice(-2)}:30`);
+  }
+  return slots;
+}
+
+function getStaffList(data){
+  const names = new Set();
+  data.forEach(d=>{
+    const name = d.title.split("/")[0].trim();
+    names.add(name);
+  });
+  return Array.from(names);
+}
+
+function createTabs(staffs){
+  const el = document.getElementById("tabs");
+  el.innerHTML="";
+
+  staffs.forEach((s,i)=>{
+    const t=document.createElement("div");
+    t.className="tab" + (i===0?" active":"");
+    t.innerText=s;
+
+    t.onclick=()=>{
+      currentStaff=s;
+      document.querySelectorAll(".tab").forEach(x=>x.classList.remove("active"));
+      t.classList.add("active");
+      render();
+    };
+
+    el.appendChild(t);
+  });
+
+  currentStaff = staffs[0];
+}
+
+function isReserved(date,time){
+  return allData.find(x=>{
+    const name = x.title.split("/")[0].trim();
+    return x.date===date && x.start===time && name===currentStaff;
+  });
+}
+
+function getBusinessHours(date){
+  return businessData.find(x=>x.date===date);
+}
+
+function inBusiness(time,start,end){
+  return time>=start && time<end;
+}
+
+function render(){
+  const el=document.getElementById("calendar");
+  el.innerHTML="";
+
+  const times=generateTimeSlots();
+  const today=new Date();
+  const dates=[];
+
+  el.appendChild(div("時間","header"));
+
+  for(let i=0;i<7;i++){
+    const d=new Date();
+    d.setDate(today.getDate()+i);
+    const str=d.toISOString().split("T")[0];
+    dates.push(str);
+    el.appendChild(div(str,"header"));
+  }
+
+  times.forEach(time=>{
+    el.appendChild(div(time));
+
+    dates.forEach(date=>{
+      const bh=getBusinessHours(date);
+
+      if(!bh || !inBusiness(time,bh.start,bh.end)){
+        el.appendChild(div("×","ng"));
+        return;
+      }
+
+      const r=isReserved(date,time);
+
+      if(r){
+        el.appendChild(div("×","ng"));
+      }else{
+        const cell=div("○","ok");
+        cell.onclick=()=>openModal(date,time);
+        el.appendChild(cell);
+      }
+    });
+  });
+}
+
+function div(text,cls="cell"){
+  const d=document.createElement("div");
+  d.className="cell "+cls;
+  d.innerText=text;
+  return d;
+}
+
+function openModal(date,time){
+  selectedSlot={date,time};
+  document.getElementById("selected").innerText =
+    `${currentStaff} ${date} ${time}`;
+  document.getElementById("modal").style.display="block";
+}
+
+function closeModal(){
+  document.getElementById("modal").style.display="none";
+}
+
+function submitBooking(){
+  const name=document.getElementById("name").value;
+  const menu=document.getElementById("menu").value;
+
+  fetch(API_URL,{
+    method:"POST",
+    body:JSON.stringify({
+      date:selectedSlot.date,
+      time:selectedSlot.time,
+      name:currentStaff + " / " + name,
+      menu:menu
+    })
+  })
+  .then(res=>res.json())
+  .then(res=>{
+    if(res.status==="duplicate"){
+      alert("この時間はすでに予約されています");
+    }else{
+      alert("予約完了！");
+      location.reload();
+    }
+  });
+}
+
+Promise.all([
+  fetch(RESERVE_URL).then(r=>r.json()),
+  fetch(BUSINESS_URL).then(r=>r.json())
+]).then(([r,b])=>{
+  allData=r;
+  businessData=b;
+  const staffs=getStaffList(r);
+  createTabs(staffs);
+  render();
+});
+</script>
+
+</body>
+</html>
