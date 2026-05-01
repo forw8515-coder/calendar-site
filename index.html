@@ -95,7 +95,9 @@ function isReserved(date,time){
 }
 
 function getBusinessHours(date){
-  return businessData.find(x=>x.date===date);
+  return businessData.find(x=>{
+    return x.date===date && x.staff===currentStaff;
+  });
 }
 
 function normalize(t){
